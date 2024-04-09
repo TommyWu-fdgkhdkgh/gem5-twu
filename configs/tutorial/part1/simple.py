@@ -1,0 +1,67 @@
+import m5
+from m5.objects import *
+
+system = System()
+
+system.clk_domain = SrcClockDomain()
+system.clk_domain.clock = "1GHz"
+system.clk_domain.voltage_domain = VoltageDomain()
+
+system.mem_mode = "timing"
+# 假如我們使用 AtomicSimpleCPU 來進行模擬的話，我們就需要把 mem_mode 也設定為 atomic
+# system.mem_mode = 'atomic'
+system.mem_ranges = [AddrRange("512MB")]
+
+# system.cpu = X86TimingSimpleCPU()
+# system.cpu = X86AtomicSimpleCPU()
+system.cpu = X86MinorCPU()
+# system.cpu = X86O3CPU()
+# system.cpu = X86KvmCPU()
+
+system.membus = SystemXBar()
+
+system.cpu.icache_port = system.membus.cpu_side_ports
+system.cpu.dcache_port = system.membus.cpu_side_ports
+
+system.cpu.createInterruptController()
+
+# For X86 only we make sure the interrupts care connect to memory.
+# Note: these are directly connected to the memory bus and are not cached.
+# For other ISA you should remove the following three lines.
+system.cpu.interrupts[0].pio = system.membus.mem_side_ports
+system.cpu.interrupts[0].int_requestor = system.membus.cpu_side_ports
+system.cpu.interrupts[0].int_responder = system.membus.mem_side_ports
+
+# Connect the system up to the membus
+system.system_port = system.membus.cpu_side_ports
+
+system.mem_ctrl = MemCtrl()
+system.mem_ctrl.dram = DDR3_1600_8x8()
+system.mem_ctrl.dram.range = system.mem_ranges[0]
+system.mem_ctrl.port = system.membus.mem_side_ports
+
+# Here we set the X86 "hello world" binary. With other ISAs you must specify
+# workloads compiled to those ISAs. Other "hello world" binaries for other ISAs
+# can be found in "tests/test-progs/hello".
+thispath = os.path.dirname(os.path.realpath(__file__))
+binary = os.path.join(
+    thispath,
+    "../../../",
+    "tests/test-progs/hello/bin/x86/linux/hello",
+)
+
+# for gem5 V21 and beyond
+system.workload = SEWorkload.init_compatible(binary)
+
+process = Process()
+process.cmd = [binary]
+system.cpu.workload = process
+system.cpu.createThreads()
+
+root = Root(full_system=False, system=system)
+m5.instantiate()
+
+print("Beginning simulation!")
+exit_event = m5.simulate()
+
+print(f"Exiting @ tick {m5.curTick()} because {exit_event.getCause()}")
